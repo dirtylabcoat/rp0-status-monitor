@@ -7,7 +7,7 @@ from time import sleep
 
 import requests
 from gpiozero import StatusZero
-from requests.exceptions import Timeout
+from requests.exceptions import ConnectionError, Timeout
 
 
 class ServiceStatus:
@@ -48,7 +48,7 @@ def check_internet_connection(output_queue):
                     output_queue.put(ServiceStatus.UP)
                 else:
                     output_queue.put(ServiceStatus.DOWN)
-            except Timeout:
+            except Exception:
                 output_queue.put(ServiceStatus.DOWN)
         else:
             output_queue.put(ServiceStatus.DOWN)
@@ -76,7 +76,7 @@ def check_jellyfin():
             return True
         else:
             return False
-    except Timeout:
+    except Exception:
         return False
 
 
@@ -92,11 +92,41 @@ def check_home_server(output_queue):
         sleep(10)
 
 
+def show_home_assistant(status_zero: StatusZero, input_queue: queue.Queue):
+    while True:
+        msg = input_queue.get()
+        # print(msg)
+        if msg == ServiceStatus.UP:
+            status_zero.three.green.on()
+            status_zero.three.red.off()
+        elif msg == ServiceStatus.DOWN:
+            status_zero.three.green.off()
+            status_zero.three.red.on()
+        else:
+            status_zero.three.green.on()
+            status_zero.three.red.on()
+
+
+def check_home_assistant(output_queue):
+    home_assistant_health_url = 'http://my-home-assistant/api'
+    while True:
+        try:
+            response = requests.get(home_assistant_health_url, allow_redirects=True, timeout=3) # add Bearer token (long-lived access token) to headers
+            response_message_is_ok = True # add proper check here
+            if response.status_code == 200 and response_message_is_ok:
+                output_queue.put(ServiceStatus.UP)
+            else:
+                output_queue.put(ServiceStatus.DOWN)
+        except (Timeout, ConnectionError):
+            output_queue.put(ServiceStatus.DOWN)
+        sleep(10)
+
+
 status_zero = StatusZero()
 
 check_internet_queue = queue.Queue()
 check_home_server_queue = queue.Queue()
-#check_home_assistant_queue = queue.Queue()
+check_home_assistant_queue = queue.Queue()
 
 thread1 = threading.Thread(target=show_internet_connection, args=(status_zero,check_internet_queue,))
 thread2 = threading.Thread(target=check_internet_connection, args=(check_internet_queue,))
@@ -104,14 +134,17 @@ thread2 = threading.Thread(target=check_internet_connection, args=(check_interne
 thread3 = threading.Thread(target=show_home_server, args=(status_zero,check_home_server_queue,))
 thread4 = threading.Thread(target=check_home_server, args=(check_home_server_queue,))
 
-#thread5 = threading.Thread(target=show_home_assistant, args=(status_zero,check_home_assistant_queue,))
-#thread6 = threading.Thread(target=check_home_assistant, args=(check_home_assistant_queue,))
+thread5 = threading.Thread(target=show_home_assistant, args=(status_zero,check_home_assistant_queue,))
+thread6 = threading.Thread(target=check_home_assistant, args=(check_home_assistant_queue,))
 
 thread1.start()
 thread2.start()
 
 thread3.start()
 thread4.start()
+
+thread5.start()
+thread6.start()
 
 while True:
     pass
